@@ -1,14 +1,16 @@
-defmodule BlockScanners.MixProject do
+defmodule PlugDeflect.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :block_scanners,
+      app: :plug_deflect,
       version: "0.1.0",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      description: "Plug that blocks vulnerability scanner traffic (WordPress, PHP, etc.) early in the endpoint pipeline."
+      description: "Plug that deflects invalid traffic (scanners, bots, path traversal) before it hits your router.",
+      source_url: "https://github.com/afomi/plug_deflect",
+      homepage_url: "https://github.com/afomi/plug_deflect"
     ]
   end
 
@@ -20,7 +22,9 @@ defmodule BlockScanners.MixProject do
 
   defp deps do
     [
-      {:plug, "~> 1.14"}
+      {:plug, "~> 1.14"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 end
