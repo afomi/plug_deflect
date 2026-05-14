@@ -14,12 +14,39 @@ defmodule PlugDeflect do
       plug PlugDeflect
       plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
+  ## Options
+
+    * `:extra_extensions` - list of extensions to block in addition to the defaults.
+      Example: `[".cfm", ".pl"]`
+
+    * `:extra_paths` - list of path prefixes to block in addition to the defaults.
+      Example: `["/legacy-admin", "/old-api"]`
+
+    * `:only_extensions` - list of extensions to block, replacing the defaults entirely.
+      When set, `:extra_extensions` is ignored.
+
+    * `:only_paths` - list of path prefixes to block, replacing the defaults entirely.
+      When set, `:extra_paths` is ignored.
+
+  ## Examples
+
+      # Use defaults
+      plug PlugDeflect
+
+      # Add to defaults
+      plug PlugDeflect, extra_paths: ["/legacy-admin"], extra_extensions: [".cfm"]
+
+      # Replace defaults entirely
+      plug PlugDeflect, only_paths: ["/wp-admin", "/xmlrpc"], only_extensions: [".php"]
+
   """
+
+  @behaviour Plug
 
   import Plug.Conn
   require Logger
 
-  @blocked_extensions ~w(
+  @default_extensions ~w(
     .7z
     .asp
     .aspx
@@ -54,7 +81,7 @@ defmodule PlugDeflect do
     .zip
   )
 
-  @blocked_paths ~w(
+  @default_paths ~w(
     /wp-admin /wp-content /wp-includes /wp-login /wp-json /wp-cron
     /wordpress /xmlrpc /wp-config /wp-settings
 
@@ -85,16 +112,53 @@ defmodule PlugDeflect do
     /.git /.svn /.env /.htaccess /.htpasswd
     /.aws /.docker /.kube /.ssh /.bash_history
     /.DS_Store /.vscode /.idea
-    /.well-known/security.txt
 
     /server-status /server-info
     /cgi-bin
     /autodiscover /owa /exchange /ecp
   )
 
-  def init(opts), do: opts
+  def default_extensions, do: @default_extensions
+  def default_paths, do: @default_paths
 
-  def call(conn, _opts) do
+  def init(opts) do
+    extensions =
+      case Keyword.get(opts, :only_extensions) do
+        nil -> @default_extensions ++ Keyword.get(opts, :extra_extensions, [])
+        list -> list
+      end
+
+    paths =
+      case Keyword.get(opts, :only_paths) do
+        nil -> @default_paths ++ Keyword.get(opts, :extra_paths, [])
+        list -> list
+      end
+
+    validate_extensions!(extensions)
+    validate_paths!(paths)
+
+    %{extensions: extensions, paths: paths}
+  end
+
+  defp validate_extensions!(extensions) do
+    Enum.each(extensions, fn ext ->
+      unless String.starts_with?(ext, ".") do
+        raise ArgumentError,
+          "PlugDeflect: extension #{inspect(ext)} must start with a dot (e.g. \".#{ext}\")"
+      end
+    end)
+  end
+
+  defp validate_paths!(paths) do
+    Enum.each(paths, fn path ->
+      unless String.starts_with?(path, "/") do
+        raise ArgumentError,
+          "PlugDeflect: path #{inspect(path)} must start with a slash (e.g. \"/#{path}\")"
+      end
+    end)
+  end
+
+  def call(conn, %{extensions: extensions, paths: paths}) do
     path = conn.request_path |> String.downcase()
     decoded_path = fully_decode(path)
 
@@ -102,10 +166,10 @@ defmodule PlugDeflect do
       path_traversal?(decoded_path) ->
         deflect(conn, path)
 
-      blocked_extension?(decoded_path) ->
+      blocked_extension?(decoded_path, extensions) ->
         deflect(conn, path)
 
-      blocked_path?(decoded_path) ->
+      blocked_path?(decoded_path, paths) ->
         deflect(conn, path)
 
       true ->
@@ -127,12 +191,12 @@ defmodule PlugDeflect do
     String.contains?(path, "..")
   end
 
-  defp blocked_extension?(path) do
-    Enum.any?(@blocked_extensions, &String.ends_with?(path, &1))
+  defp blocked_extension?(path, extensions) do
+    Enum.any?(extensions, &String.ends_with?(path, &1))
   end
 
-  defp blocked_path?(path) do
-    Enum.any?(@blocked_paths, &String.starts_with?(path, &1))
+  defp blocked_path?(path, paths) do
+    Enum.any?(paths, &String.starts_with?(path, &1))
   end
 
   defp deflect(conn, path) do
